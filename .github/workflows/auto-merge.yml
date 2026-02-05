@@ -1,0 +1,157 @@
+name: Auto Merge PRs
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'  # Runs approximately every 5 minutes (GitHub's practical minimum)
+  workflow_dispatch:  # Allow manual trigger for testing
+
+jobs:
+  auto-merge:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Check and merge latest valid PR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          
+          # Allowed file extensions
+          ALLOWED_EXTENSIONS=("html" "css" "js" "json" "md" "txt")
+          MAX_FILE_SIZE=512000  # 500 KB in bytes
+          
+          echo "Fetching latest open PR..."
+          PR_DATA=$(gh pr list --state open --json number,author,mergeable,headRefName --limit 1 --sort created --order desc)
+          
+          if [ "$PR_DATA" == "[]" ]; then
+            echo "No open PRs found. Exiting."
+            exit 0
+          fi
+          
+          PR_NUMBER=$(echo "$PR_DATA" | jq -r '.[0].number')
+          PR_AUTHOR=$(echo "$PR_DATA" | jq -r '.[0].author.login')
+          MERGEABLE=$(echo "$PR_DATA" | jq -r '.[0].mergeable')
+          
+          echo "Found PR #$PR_NUMBER by @$PR_AUTHOR"
+          echo "Mergeable status: $MERGEABLE"
+          
+          # Check if PR is mergeable (no conflicts)
+          if [ "$MERGEABLE" != "MERGEABLE" ]; then
+            echo "PR #$PR_NUMBER is not mergeable (status: $MERGEABLE). Skipping."
+            exit 0
+          fi
+          
+          echo "Fetching changed files for PR #$PR_NUMBER..."
+          FILES=$(gh pr view "$PR_NUMBER" --json files --jq '.files[].path')
+          
+          if [ -z "$FILES" ]; then
+            echo "No files changed in PR. Skipping."
+            exit 0
+          fi
+          
+          echo "Files changed:"
+          echo "$FILES"
+          
+          # Validate each file
+          VALID=true
+          while IFS= read -r file; do
+            echo "Checking file: $file"
+            
+            # Check for protected paths
+            if [[ "$file" == .github/* ]]; then
+              echo "REJECTED: File '$file' is in .github/ directory"
+              VALID=false
+              break
+            fi
+            
+            if [[ "$file" == "README.md" ]]; then
+              echo "REJECTED: Cannot modify README.md"
+              VALID=false
+              break
+            fi
+            
+            # Check file extension
+            extension="${file##*.}"
+            extension_lower=$(echo "$extension" | tr '[:upper:]' '[:lower:]')
+            
+            EXTENSION_ALLOWED=false
+            for allowed in "${ALLOWED_EXTENSIONS[@]}"; do
+              if [ "$extension_lower" == "$allowed" ]; then
+                EXTENSION_ALLOWED=true
+                break
+              fi
+            done
+            
+            if [ "$EXTENSION_ALLOWED" != true ]; then
+              echo "REJECTED: File '$file' has disallowed extension '.$extension_lower'"
+              VALID=false
+              break
+            fi
+            
+            # Check file size using GitHub API
+            FILE_SIZE=$(gh api "repos/${{ github.repository }}/pulls/$PR_NUMBER/files" --jq ".[] | select(.filename == \"$file\") | .size // .changes" 2>/dev/null || echo "0")
+            
+            # If we can't get size from PR files, try to get it from the blob
+            if [ -z "$FILE_SIZE" ] || [ "$FILE_SIZE" == "null" ]; then
+              FILE_SIZE=0
+            fi
+            
+            echo "File size for '$file': $FILE_SIZE bytes"
+            
+            if [ "$FILE_SIZE" -gt "$MAX_FILE_SIZE" ]; then
+              echo "REJECTED: File '$file' exceeds maximum size of 500 KB ($FILE_SIZE bytes)"
+              VALID=false
+              break
+            fi
+            
+          done <<< "$FILES"
+          
+          if [ "$VALID" != true ]; then
+            echo "PR #$PR_NUMBER failed validation. Skipping."
+            exit 0
+          fi
+          
+          echo "PR #$PR_NUMBER passed all validation checks!"
+          echo "Merging PR #$PR_NUMBER..."
+          
+          # Squash and merge
+          gh pr merge "$PR_NUMBER" --squash --auto=false
+          
+          echo "PR #$PR_NUMBER merged successfully!"
+          
+          # Update contributors list
+          echo "Updating contributors list..."
+          
+          # Pull latest changes after merge
+          git pull origin main
+          
+          # Check if contributor already exists
+          if grep -q "@$PR_AUTHOR" README.md; then
+            echo "Contributor @$PR_AUTHOR already in README. Skipping update."
+            exit 0
+          fi
+          
+          # Add contributor to README
+          TIMESTAMP=$(date -u +"%Y-%m-%d")
+          CONTRIBUTOR_LINE="- [@$PR_AUTHOR](https://github.com/$PR_AUTHOR) - $TIMESTAMP"
+          
+          # Insert contributor before the CONTRIBUTORS_END marker
+          sed -i "s|<!-- CONTRIBUTORS_END -->|$CONTRIBUTOR_LINE\n<!-- CONTRIBUTORS_END -->|" README.md
+          
+          # Commit and push
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add README.md
+          git commit -m "Add @$PR_AUTHOR to contributors list"
+          git push origin main
+          
+          echo "Contributor @$PR_AUTHOR added to README!"
+          echo "Done!"
