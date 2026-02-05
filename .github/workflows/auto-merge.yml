@@ -29,7 +29,7 @@ jobs:
           MAX_FILE_SIZE=512000  # 500 KB in bytes
           
           echo "Fetching latest open PR..."
-          PR_DATA=$(gh pr list --state open --json number,author,mergeable,headRefName --limit 1 --sort created --order desc)
+          PR_DATA=$(gh pr list --state open --json number,author,mergeable,headRefName,createdAt --limit 100 | jq 'sort_by(.createdAt) | reverse | .[0:1]')
           
           if [ "$PR_DATA" == "[]" ]; then
             echo "No open PRs found. Exiting."
