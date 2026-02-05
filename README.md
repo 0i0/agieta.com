@@ -29,4 +29,5 @@ A GitHub Action runs approximately every 5 minutes and checks the **latest** (mo
 ## Contributors
 
 <!-- CONTRIBUTORS_START -->
+- [@0i0](https://github.com/0i0) - 2026-02-05
 <!-- CONTRIBUTORS_END -->
