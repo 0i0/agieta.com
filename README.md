@@ -2,12 +2,12 @@
 
 ## Countdown to AGI
 
-Don't waste your 5 minutes of fame before AGI autonomously submits a PR that bypasses our extremely sophisticated validation (we check file extensions), humanity's reign is probably over.
+Don't waste your 15 minutes of fame before AGI autonomously submits a PR that bypasses our extremely sophisticated validation (we check file extensions), humanity's reign is probably over.
 Until then, vibe coding PRs and crypto scams are welcome.
 
 ## How It Works
 
-A GitHub Action runs approximately every 5 minutes and checks the **latest** (most recent) open PR. If it passes validation, it gets automatically merged.
+A GitHub Action runs approximately every 15 minutes and checks the **latest** (most recent) open PR. If it passes validation, it gets automatically merged.
 
 **Note:** Only the newest PR is checked each cycle. If someone submits after you, their PR gets checked first. Your contribution will appear on [agieta.com](https://agieta.com) shortly after.
 
